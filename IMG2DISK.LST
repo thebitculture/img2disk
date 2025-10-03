@@ -1,0 +1,389 @@
+'
+' Disk Image Restorer to Floppy in GFA Basic
+'
+CLS
+PRINT "==========================================="
+PRINT "  DISK IMAGE RESTORER TO FLOPPY DISK"
+PRINT "==========================================="
+PRINT
+PRINT "Dump your .ST or .MSA images to disk."
+PRINT
+PRINT "WARNING: This program will OVERWRITE"
+PRINT "the destination disk contents."
+PRINT
+res%=XBIOS(4)
+IF res%=0
+  PRINT "This program requires med or hi resolution!"
+  INPUT "Ok. (Y/Y)";answer$
+  END
+ENDIF
+PRINT "Do you want to dump any image? (Y/N)"
+answer$=UPPER$(INPUT$(1))
+IF answer$<>"Y"
+  PRINT "Operation cancelled"
+  END
+ENDIF
+'
+' Use file selector
+path$="\*.*"
+file$="*.*"
+'
+' Call file selector
+FILESELECT path$,".*",file$
+'
+' Build full file path
+' Extract directory from path$ (up to last \ or :)
+i%=LEN(path$)
+WHILE i%>0
+  IF MID$(path$,i%,1)="\" OR MID$(path$,i%,1)=":"
+    EXIT IF TRUE
+  ENDIF
+  i%=i%-1
+WEND
+'
+IF i%>0
+  directory$=LEFT$(path$,i%)
+ELSE
+  DIR ectory$ TO "="""
+ENDIF
+'
+image$=directory$+file$
+'
+' Detect file type
+extension$=UPPER$(RIGHT$(image$,3))
+'
+IF extension$="MSA"
+  file_type$="MSA"
+  is_msa=TRUE
+ELSE IF extension$=".ST" OR extension$="ST"
+  file_type$="ST"
+  is_msa=FALSE
+ELSE
+  file_type$="Unknown"
+  is_msa=FALSE
+ENDIF
+'
+PRINT
+PRINT "Selected file:"
+PRINT image$
+PRINT "Type:",file_type$
+PRINT
+'
+' Check file existence
+IF NOT EXIST(image$)
+  PRINT "ERROR: File does not exist"
+  END
+ENDIF
+'
+' Get file size
+OPEN "I",#1,image$
+file_size%=LOF(#1)
+CLOSE #1
+'
+PRINT
+PRINT "Image file size:",file_size%;"bytes"
+PRINT
+bytes_per_sector%=512
+'
+' Process according to file type
+IF is_msa
+  ' MSA file
+  PRINT "Processing MSA file..."
+  PRINT
+  '
+  OPEN "I",#1,image$
+  '
+  ' Read MSA header (5 words)
+  ' Word: Signature (&h0E0F)
+  ' Word: Number of sectors
+  ' Word: Number of sides
+  ' Word: Start track
+  ' Word: End track
+  '
+  ' read header
+  header%=MALLOC(10)
+  BGET #1,header%,10
+  CLOSE #1
+  '
+  signature%=DPEEK(header%)
+  ' check signature
+  IF signature%<>&HE0F
+    PRINT "ERROR: Signature failed. Not MSA image file."
+  ENDIF
+  sectors_per_track%=DPEEK(header%+2)
+  sides%=DPEEK(header%+4)+1
+  trstart%=DPEEK(header%+6)
+  trend%=DPEEK(header%+8)
+  tracks%=trend%-trstart%
+  '
+  $type="MSA file"
+ELSE
+  ' Standard ST file
+  ' Detect configuration by size
+  detected=FALSE
+  '
+  ' Common Atari ST disk configurations
+  ' 360KB - Single side, 80 tracks, 9 sectors
+  IF file_size%=368640
+    sectors_per_track%=9
+    tracks%=80
+    sides%=1
+    type$="360KB (single side)"
+    detected=TRUE
+  ENDIF
+  '
+  ' 720KB - Double side, 80 tracks, 9 sectors (most common)
+  IF file_size%=737280
+    sectors_per_track%=9
+    tracks%=80
+    sides%=2
+    type$="720KB (double side)"
+    detected=TRUE
+  ENDIF
+  '
+  ' 800KB - Double side, 80 tracks, 10 sectors
+  IF file_size%=819200
+    sectors_per_track%=10
+    tracks%=80
+    sides%=2
+    type$="800KB (10 sectors)"
+    detected=TRUE
+  ENDIF
+  '
+  ' 810KB - Double side, 82 tracks, 10 sectors
+  IF file_size%=829440
+    sectors_per_track%=10
+    tracks%=81
+    sides%=2
+    type$="810KB (10 sectors)"
+    detected=TRUE
+  ENDIF
+  '
+  ' 820KB - Double side, 82 tracks, 10 sectors
+  IF file_size%=839680
+    sectors_per_track%=10
+    tracks%=82
+    sides%=2
+    type$="820KB (10 sectors)"
+    detected=TRUE
+  ENDIF
+  '
+  ' 880KB - Double side, 80 tracks, 11 sectors
+  IF file_size%=901120
+    sectors_per_track%=11
+    tracks%=80
+    sides%=2
+    type$="880KB (11 sectors)"
+    detected=TRUE
+  ENDIF
+  '
+  ' 1.44MB - Double side, 80 tracks, 18 sectors
+  IF file_size%=1474560
+    sectors_per_track%=18
+    tracks%=80
+    sides%=2
+    type$="1.44MB (high density)"
+    detected=TRUE
+  ENDIF
+  '
+  IF NOT detected
+    PRINT "Could not automatically detect"
+    PRINT "disk configuration."
+    PRINT
+    PRINT "Enter configuration manually:"
+    INPUT "Number of tracks (0=80): ";tracks%
+    IF tracks%=0
+      tracks%=80
+    ENDIF
+    INPUT "Number of sides (1 or 2): ";sides%
+    IF sides%=0
+      sides%=2
+    ENDIF
+    INPUT "Sectors per track (0=9): ";sectors_per_track%
+    IF sectors_per_track%=0
+      sectors_per_track%=9
+    ENDIF
+    type$="Manual"
+  ELSE
+    PRINT "Detected configuration: ";type$
+  ENDIF
+ENDIF
+'
+' Calculate totals
+total_sectors%=sectors_per_track%*tracks%*sides%
+total_size%=total_sectors%*bytes_per_sector%
+'
+PRINT
+PRINT "Disk configuration:"
+PRINT "  Type: ",type$
+PRINT "  Tracks: ",tracks%
+PRINT "  Sides: ",sides%
+PRINT "  Sectors per track: ",sectors_per_track%
+PRINT "  Bytes per sector: ",bytes_per_sector%
+PRINT "  Total sectors: ",total_sectors%
+PRINT "  Calculated size: ",total_size%;" bytes"
+PRINT
+'
+' Verify consistency
+IF is_msa=FALSE AND file_size%<>total_size%
+  PRINT "WARNING: File size (";file_size%;")"
+  PRINT "does not match calculated size (";total_size%;")"
+  PRINT
+  PRINT "Continue anyway? (Y/N)"
+  answer$=UPPER$(INPUT$(1))
+  IF answer$<>"Y"
+    PRINT "Operation cancelled"
+    END
+  ENDIF
+ENDIF
+'
+' Request destination drive
+PRINT
+INPUT "Destination drive (A or B): ";drive$
+drive$=UPPER$(drive$)
+IF drive$<>"A" AND drive$<>"B"
+  PRINT "ERROR: Invalid drive"
+  GOTO finish
+ENDIF
+'
+' Determine drive number (0=A, 1=B)
+IF drive$="A"
+  drive%=0
+ELSE
+  drive%=1
+ENDIF
+'
+' Format destination disk?
+format_dest=TRUE
+PRINT
+INPUT "Format destination disk? (Y/N): ";answer$
+PRINT
+answer$=UPPER$(answer$)
+IF answer$<>"Y"
+  format_dest=FALSE
+ENDIF
+'
+' Final confirmation
+PRINT
+PRINT "FINAL WARNING!"
+PRINT "About to write to drive ";drive$;":"
+PRINT "All current contents will be lost."
+PRINT
+PRINT "Press Y to continue or N to cancel"
+answer$=UPPER$(INPUT$(1))
+IF answer$<>"Y"
+  PRINT
+  PRINT "Operation cancelled"
+  END
+ENDIF
+'
+' Reserve memory for buffer (1 complete track)
+buffer_size%=sectors_per_track%*bytes_per_sector%
+buffer_addr%=MALLOC(buffer_size%+1)
+IF buffer_addr%=0
+  PRINT
+  PRINT "ERROR: Not enough memory"
+  PRINT "Buffer needed: ";buffer_size%;"bytes"
+  END
+ENDIF
+PRINT "Buffer needed: ";buffer_size%;"bytes"
+'
+' Open image file
+OPEN "I",#1,image$
+IF is_msa
+  ' Skip MSA header
+  skip_buffer%=MALLOC(10)
+  BGET #1,skip_buffer%,10
+  a%=MFREE(skip_buffer%)
+ENDIF
+'
+' Write process
+PRINT
+PRINT "Writing image to floppy disk..."
+PRINT
+'
+' Write by tracks and sides
+FOR track%=0 TO tracks%-1
+  FOR side%=0 TO sides%-1
+    '
+    ' Show progress
+    PRINT AT(1,csrlin);"Track ";track%;" Side ";side%+1;"               ";
+    ' Format destination
+    IF format_dest
+      PRINT AT(1,csrlin);"Track ";track%;" Side ";side%+1;" - formating.. ";
+      e%=XBIOS(10,L:buffer_addr%,L:0,drive%,sectors_per_track%,track%,side%,1,L:&H87654321,&HE5E5)
+    ENDIF
+    '
+    '
+    PRINT AT(1,csrlin);"Track ";track%;" Side ";side%+1;" - writing..   ";
+    '
+    ' Read one complete track from image file
+    IF is_msa
+      ' Read track data length
+      LET track_data_length&=0
+      BGET #1,VARPTR(track_data_length&),2
+      ' Compressed track?
+      IF buffer_size%>track_data_length&
+        count%=0
+        REPEAT
+          sector_data=INP(#1)
+          IF sector_data=&HE5
+            ' repeated byte
+            sector_data=INP(#1)
+            ' length
+            BGET #1,VARPTR(track_data_length&),2
+            ' fill repeated byte
+            FOR i&=0 TO track_data_length&-1
+              POKE buffer_addr%+count%,sector_data
+              count%=count%+1
+            NEXT i&
+          ELSE
+            POKE buffer_addr%+count%,sector_data
+            count%=count%+1
+          ENDIF
+        UNTIL count%=buffer_size%
+      ELSE
+        BGET #1,buffer_addr%,buffer_size%
+      ENDIF
+    ELSE
+      ' For standard .ST files
+      ' Read complete track into buffer
+      BGET #1,buffer_addr%,buffer_size%
+    ENDIF
+    '
+    ' Write track to disk using XBIOS
+    result%=XBIOS(9,L:buffer_addr%,L:0,W:drive%,W:1,W:track%,W:side%,W:sectors_per_track%)
+    '
+    IF result%<>0
+      PRINT
+      PRINT "ERROR on track ";track%;", side ";side%+1;" (code";result%;")"
+      PRINT "Continue? (Y/N)"
+      answer$=UPPER$(INPUT$(1))
+      IF answer$<>"Y"
+        PRINT "Operation interrupted"
+        END
+      ENDIF
+    ENDIF
+  NEXT side%
+NEXT track%
+'
+PRINT
+PRINT
+PRINT "==========================================="
+PRINT "Process completed"
+IF errors%>0
+  PRINT "Errors found:",errors%
+ELSE
+  PRINT "No errors - Image restored OK"
+ENDIF
+PRINT "==========================================="
+'
+CLOSE #1
+IF buffer_addr%<>0
+  a%=MFREE(buffer_addr%)
+ENDIF
+'
+PRINT
+PRINT "Press any key to exit"
+VOID INP(2)
+END
