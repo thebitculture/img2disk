@@ -25,29 +25,9 @@ IF answer$<>"Y"
 ENDIF
 '
 ' Use file selector
-path$="\*.*"
-file$="*.*"
 '
 ' Call file selector
-FILESELECT path$,".*",file$
-'
-' Build full file path
-' Extract directory from path$ (up to last \ or :)
-i%=LEN(path$)
-WHILE i%>0
-  IF MID$(path$,i%,1)="\" OR MID$(path$,i%,1)=":"
-    EXIT IF TRUE
-  ENDIF
-  i%=i%-1
-WEND
-'
-IF i%>0
-  directory$=LEFT$(path$,i%)
-ELSE
-  DIR ectory$ TO "="""
-ENDIF
-'
-image$=directory$+file$
+FILESELECT "c:\","*.*",image$
 '
 ' Detect file type
 extension$=UPPER$(RIGHT$(image$,3))
